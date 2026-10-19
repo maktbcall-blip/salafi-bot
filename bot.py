@@ -1,110 +1,55 @@
-import logging
-from telethon import Button, TelegramClient, events
+import os
+from telethon import TelegramClient, events
 
-# بياناتك الصحيحة والتنصيصات سليمة
-API_ID = 32863080
-API_HASH = "56761d4c8f04011adf5779ca13095184"
-BOT_TOKEN = "8842393887:AAFqtGCAc6ybVYgQDarwNkLe5nrSN9lgnHY"
+# بيانات التوثيق الخاصة بك (يُفضل استخدام المتغيرات البيئية في Railway للحماية)
+API_ID = int(os.environ.get("API_ID", "ضع_API_ID_هنا"))
+API_HASH = os.environ.get("API_HASH", "ضع_API_HASH_هنا")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "ضع_BOT_TOKEN_هنا")
 
-# الآيدي الخاص بك (مدير المكتبة الوحيد)
-ADMIN_ID = 8779419591
+# ضع هنا رقم الآيدي (Telegram ID) الخاص بك حصرياً لكي تتمكن وحدك من رفع الكتب
+ADMIN_ID = int(os.environ.get("ADMIN_ID", 123456789)) # استبدل الرقم برقم آيدي حسابك الحقيقي
 
-logging.basicConfig(level=logging.INFO)
+client = TelegramClient("bot_session", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
-# إنشاء العميل الخاص بالبوت
-client = TelegramClient("alsalafe_session_v3", API_ID, API_HASH).start(
-    bot_token=BOT_TOKEN
-)
+# مجلد لحفظ الكتب المستلمة
+BOOKS_DIR = "books"
+if not os.path.exists(BOOKS_DIR):
+    os.makedirs(BOOKS_DIR)
 
-BOOKS_DATABASE = {}
+@client.on(events.NewMessage(pattern='/start'))
+async def start(event):
+    await event.respond(
+        "مرحباً بك في بوت المكتبة السلفي 📚\n\n"
+        "يمكنك استخدام الأوامر التالية:\n"
+        "/books - لعرض قائمة الكتب المتاحة.\n\n"
+        "💡 ملاحظة: رفع الكتب مخصص للمشرف فقط."
+    )
 
+# استقبال الكتب وإضافتها تلقائياً (مخصص لك أنت فقط عبر ADMIN_ID)
+@client.on(events.NewMessage(func=lambda e: e.is_private and e.sender_id == ADMIN_ID and e.document))
+async def save_new_book(event):
+    try:
+        # تحميل الملف المرسل وحفظه في مجلد الكتب
+        file_path = await event.download_media(file=BOOKS_DIR)
+        file_name = os.path.basename(file_path)
+        await event.respond(f"✅ تم حفظ الكتاب بنجاح وتمت إضافته للمكتبة:\n{file_name}")
+    except Exception as e:
+        await event.respond(f"❌ حدث خطأ أثناء حفظ الكتاب: {str(e)}")
 
-@client.on(events.NewMessage(pattern="/start"))
-async def cmd_start(event):
-  keyboard = [
-      [Button.inline("📚 تصفح الكتب", data=b"list_books")],
-      [Button.inline("🔍 بحث عن كتاب", data=b"search_prompt")],
-  ]
-  await event.respond(
-      "مرحباً بك في بوت **مكتبة السلفي**! 📖\nاختر ما تحب من الخيارات أدناه:",
-      buttons=keyboard,
-  )
-
-
-@client.on(events.CallbackQuery(data=b"list_books"))
+# أمر لعرض الكتب المتاحة للمستخدمين
+@client.on(events.NewMessage(pattern='/books'))
 async def list_books(event):
-  if not BOOKS_DATABASE:
-    await event.answer("عذراً، مكتبة السلفي فارغة حالياً.", alert=True)
-    return
+    files = os.listdir(BOOKS_DIR)
+    if not files:
+        await event.respond("📁 لا توجد كتب مضافة في المكتبة حالياً.")
+        return
+    
+    response = "📚 قائمة الكتب المتاحة في المكتبة:\n\n"
+    for i, file in enumerate(files, 1):
+        response += f"{i}. {file}\n"
+    
+    response += "\nيمكنك طلب أي كتاب بإرسال اسمه أو رقمه للإدارة، أو سيتم تطويره ليُرسل تلقائياً."
+    await event.respond(response)
 
-  keyboard = []
-  for book_name in BOOKS_DATABASE.keys():
-    keyboard.append([Button.inline(book_name, data=f"get_{book_name}".encode())])
-
-  keyboard.append([Button.inline("🔙 القائمة الرئيسية", data=b"main_menu")])
-
-  await event.edit(
-      "إليك الكتب المتوفرة في مكتبة السلفي:", buttons=keyboard
-  )
-
-
-@client.on(events.CallbackQuery(data=b"main_menu"))
-async def main_menu(event):
-  keyboard = [
-      [Button.inline("📚 تصفح الكتب", data=b"list_books")],
-      [Button.inline("🔍 بحث عن كتاب", data=b"search_prompt")],
-  ]
-  await event.edit(
-      "مرحباً بك في بوت **مكتبة السلفي**! 📖\nاختر ما تحب من الخيارات أدناه:",
-      buttons=keyboard,
-  )
-
-
-@client.on(events.CallbackQuery(pattern=b"get_"))
-async def send_book(event):
-  data_bytes = event.data
-  book_name = data_bytes.decode("utf-8").replace("get_", "")
-  message_obj = BOOKS_DATABASE.get(book_name)
-
-  if message_obj:
-    await event.respond(message_obj)
-    await event.answer("إليك الكتاب يا فاعل الخير 📚")
-  else:
-    await event.answer("عذراً، لم يتم العثور على هذا الكتاب.", alert=True)
-
-
-@client.on(events.CallbackQuery(data=b"search_prompt"))
-async def search_prompt(event):
-  await event.answer(
-      "خاصية البحث المباشر قيد التطوير، يمكنك حالياً تصفح الكتب عبر زر"
-      " (تصفح الكتب).",
-      alert=True,
-  )
-
-
-# 4. إضافة كتاب للمكتبة (حصرية للمشرف فقط)
-@client.on(events.NewMessage(pattern=r"/add (.+)"))
-async def add_book(event):
-  # التحقق من أن المرسل هو أنت حصراً
-  if event.sender_id != ADMIN_ID:
-    await event.respond(
-        "عذراً! إضافة الكتب مخصصة لمدير المكتبة فقط 🚫"
-    )
-    return
-
-  book_name = event.pattern_match.group(1).strip()
-
-  if event.message.media:
-    BOOKS_DATABASE[book_name] = event.message
-    await event.respond(
-        f"تم بنجاح إضافة كتاب: **{book_name}** إلى مكتبة السلفي! 🎉"
-    )
-  else:
-    await event.respond(
-        "الرجاء إرفاق ملف الكتاب (PDF) مع أمر الإضافة هكذا:\n`/add اسم"
-        " الكتاب` مع الملف."
-    )
-
-
-print("بوت مكتبة السلفي يعمل الآن بصلاحيات المدير الكاملة...")
+print("Bot is running...")
 client.run_until_disconnected()
